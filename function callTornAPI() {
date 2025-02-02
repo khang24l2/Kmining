@@ -1,0 +1,95 @@
+function callTornAPI() {
+  // Replace with your Torn API key (use a secure method to store it)
+  const apiKey = "Rna8Y4ky3pXawR13";
+  const chunkSize = 30 * 24 * 60 * 60; // 30 days in seconds
+  const endTimestamp = Math.floor(Date.now() / 1000); // Current time
+  const startTimestamp = endTimestamp - (30 * 24 * 60 * 60); // 1 month ago
+  const maxCallsPerMinute = 20; // Torn API rate limit
+  let callCount = 0; // Counter for API calls
+
+  let currentFrom = startTimestamp;
+  let allNews = {};
+  let allApplications = {};
+
+  while (currentFrom < endTimestamp) {
+    // Check if we've reached the API call limit
+    if (callCount >= maxCallsPerMinute) {
+      console.log("Pausing for 1 minute to respect rate limits...");
+      Utilities.sleep(60000); // Pause for 1 minute (60,000 milliseconds)
+      callCount = 0; // Reset the counter
+    }
+
+    const currentTo = Math.min(currentFrom + chunkSize, endTimestamp);
+    const endpoint = `https://api.torn.com/company/?selections=applications,news&key=${apiKey}&from=${currentFrom}&to=${currentTo}`;
+
+    // Fetch data from the Torn API
+    const response = UrlFetchApp.fetch(endpoint);
+    const data = JSON.parse(response.getContentText());
+
+    // Merge news and applications into allNews and allApplications
+    if (data.news) {
+      Object.assign(allNews, data.news);
+    }
+    if (data.applications) {
+      Object.assign(allApplications, data.applications);
+    }
+
+    currentFrom = currentTo; // Move to the next chunk
+    callCount++; // Increment the API call counter
+  }
+
+  // Log the data to check if it's working (optional)
+  console.log(allApplications);
+  console.log(allNews);
+
+  // Get the active sheet
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+
+  // Clear the sheet before adding new data
+  sheet.clear();
+
+  // Process and display Applications data
+  if (Object.keys(allApplications).length > 0) {
+    sheet.appendRow(["Applications"]);
+    sheet.appendRow(["User ID", "Name", "Level", "Intelligence", "Endurance", "Manual Labor", "Message", "Expires", "Status"]);
+
+    // Loop through each application
+    for (const appID in allApplications) {
+      const app = allApplications[appID];
+      const rowData = [
+        app.userID,
+        app.name,
+        app.level,
+        app.stats.intelligence,
+        app.stats.endurance,
+        app.stats.manual_labor,
+        app.message,
+        formatTimestamp(app.expires),
+        app.status
+      ];
+      sheet.appendRow(rowData);
+    }
+
+    sheet.appendRow([""]); // Add a blank row for separation
+  }
+
+  // Process and display News data (only status updates)
+  if (Object.keys(allNews).length > 0) {
+    sheet.appendRow(["News (Status Updates)"]);
+    sheet.appendRow(["Timestamp", "Status"]);
+
+    // Loop through each news entry
+    for (const timestamp in allNews) {
+      const entry = allNews[timestamp];
+      if (entry.news.toLowerCase().includes("join the company") || entry.news.toLowerCase().includes("left the company")) {
+        // Use the timestamp property from the news entry
+        sheet.appendRow([formatTimestamp(entry.timestamp), entry.news]);
+      }
+    }
+  }
+}
+
+// Helper function to format Unix timestamps
+function formatTimestamp(timestamp) {
+  return new Date(timestamp * 1000).toLocaleString();
+}
